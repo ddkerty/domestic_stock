@@ -137,10 +137,12 @@ search_history = get_user_history(user_id, limit=3) # 중복 제거된 기록 �
 if not search_history:
     st.sidebar.caption("최근 조회 기록이 없습니다.")
 
-for item in search_history: # 이제 item은 dict
-    history_display_name = f"{item['company_name']} ({item['stock_code']})"
-    # key는 유일해야 하므로 item['stock_code'] 사용 (get_user_history에서 중복 제거됨)
-    if st.sidebar.button(history_display_name, key=f"history_{item['stock_code']}", use_container_width=True, type="secondary"):
+for idx, item in enumerate(user_history):
+    history_display_name = item["corp_name"]
+    key = f"history_{item['stock_code']}_{idx}"
+    if st.sidebar.button(history_display_name, key=key, use_container_width=True, type="secondary"):
+        ...
+
         st.session_state.current_stock_code = item['stock_code']
         st.session_state.search_input_value = history_display_name
         st.session_state.show_search_results = False
