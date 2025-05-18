@@ -4,8 +4,8 @@ import zipfile
 import io
 import xml.etree.ElementTree as ET
 
-from . import config
-from .utils import timed_cache, get_logger
+from  import config
+from utils import timed_cache, get_logger
 
 logger = get_logger(__name__)
 

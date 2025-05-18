@@ -1,7 +1,7 @@
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
-from .utils import get_logger
+from utils import get_logger
 
 logger = get_logger(__name__)
 

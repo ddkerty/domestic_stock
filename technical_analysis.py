@@ -1,6 +1,6 @@
 import pandas as pd
 # import talib # TA-Lib 사용 시 주석 해제 및 설치
-from .utils import get_logger
+from utils import get_logger
 
 logger = get_logger(__name__)
 

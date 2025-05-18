@@ -1,6 +1,6 @@
 import sqlite3
-from . import config
-from .utils import get_logger
+from  import config
+from utils import get_logger
 import datetime
 
 logger = get_logger(__name__)
