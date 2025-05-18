@@ -1,0 +1,10 @@
+streamlit
+pandas
+numpy
+# OpenDartReader (직접 requests 사용으로 대체)
+python-dotenv
+plotly
+# ta-lib (필요시)
+# firebase-admin (필요시)
+requests  # 명시적으로 추가 (DART API 직접 호출용)
+FinanceDataReader # 주가 데이터 수집용
