@@ -1,4 +1,4 @@
---- START OF FILE db_handler.py ---
+
 
 import sqlite3
 import config
