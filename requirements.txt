@@ -6,3 +6,4 @@ requests>=2.31
 python-dotenv>=1.0.0
 beautifulsoup4
 lxml
+FinanceDataReader>=0.9.50
