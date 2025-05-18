@@ -183,17 +183,18 @@ if analyze_button and final_stock_code_to_analyze:
     logger.info(f"Analysis started for stock code: {final_stock_code_to_analyze} by user: {user_id}")
     
     with st.spinner("기업 정보 조회 중..."):
-        company_info = fetch_company_info(final_stock_code_to_analyze) # DART 우선, 실패 시 FDR
-        company_name = company_info.get('corp_name', f"종목({final_stock_code_to_analyze})")
-        # fetch_company_info에서 이미 FDR 조회를 시도하므로, 여기서는 추가 보강 불필요할 수 있음.
-        # 만약 fetch_company_info가 항상 DART만 본다면 여기서 KRX 조회 로직 유지. (현재는 DART 실패 시 FDR 조회)
+        company_info = fetch_company_info(final_stock_code_to_analyze)
+        company_name = company_info.get('corp_name') or final_stock_code_to_analyze
 
-    st.header(f"분석 결과: {company_name} ({final_stock_code_to_analyze})")
-    # 검색 기록 저장 시점: 분석 실행 시 (선택 확정 후)
-    if company_name != f"종목({final_stock_code_to_analyze})": # 유효한 회사명을 가져왔을 때만 저장
-        save_user_search(user_id, final_stock_code_to_analyze, company_name)
-    else: # 회사명을 못가져온 경우, stock_code만으로 저장하거나 저장하지 않을 수 있음
-        save_user_search(user_id, final_stock_code_to_analyze, f"기업({final_stock_code_to_analyze})")
+    # 중복 방지된 헤더 출력
+    if company_name == final_stock_code_to_analyze:
+        st.header(f"분석 결과: {company_name}")
+    else:
+        st.header(f"분석 결과: {company_name} ({final_stock_code_to_analyze})")
+
+    # 검색 기록 저장 (중복 방지)
+    save_user_search(user_id, final_stock_code_to_analyze, company_name)
+
 
 
     tab1, tab2 = st.tabs(["💰 기업 분석 (재무)", "📈 기술적 분석 (차트)"])
