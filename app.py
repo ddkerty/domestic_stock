@@ -2,14 +2,14 @@
 
 import streamlit as st
 from datetime import datetime, timedelta
-import pandas as pd # pandas 임포트 추가
+import pandas as pd
 
-# 모듈 임포트 (프로젝트 구조에 맞게)
+# 모듈 임포트
 from auth import firebase_auth
-from data_fetcher import fetch_dart_financial_data, fetch_stock_price_data, fetch_company_info, get_krx_stock_list # get_krx_stock_list 추가
+from data_fetcher import fetch_dart_financial_data, fetch_stock_price_data, fetch_company_info, get_krx_stock_list
 from financial_analysis import calculate_financial_ratios
 from technical_analysis import calculate_technical_indicators
-from interpret import interpret_financials, interpret_technicals # interpret.py 에 pandas 임포트 확인 필요
+from interpret import interpret_financials, interpret_technicals
 from visualization import plot_financial_summary, plot_candlestick_with_indicators
 from db_handler import save_user_search, get_user_history, get_user_setting, save_user_setting
 from utils import get_logger
@@ -19,10 +19,25 @@ logger = get_logger(__name__)
 # Streamlit 페이지 설정
 st.set_page_config(page_title="국내 주식 분석 MVP", layout="wide")
 
+# --- 세션 상태 초기화 ---
+if 'krx_stocks_df' not in st.session_state:
+    st.session_state.krx_stocks_df = get_krx_stock_list()
+    logger.info(f"Loaded KRX stock list into session state. Total: {len(st.session_state.krx_stocks_df)}")
+
+if 'current_stock_code' not in st.session_state:
+    # 초기 기본값: 사용자의 최근 검색 기록 또는 삼성전자
+    user_id_for_init = firebase_auth.get_current_user_id() # 여기서 user_id를 가져와야 함
+    initial_history = get_user_history(user_id_for_init, limit=1)
+    st.session_state.current_stock_code = initial_history[0]['stock_code'] if initial_history else "005930"
+    logger.info(f"Initialized current_stock_code: {st.session_state.current_stock_code}")
+
+if 'selected_stock_display_name' not in st.session_state:
+    st.session_state.selected_stock_display_name = "직접 입력"
+
+
 # --- 사이드바 ---
 st.sidebar.title("🧭 메뉴")
 
-# 사용자 인증 (MVP에서는 mock)
 user_id = firebase_auth.get_current_user_id()
 if firebase_auth.is_user_logged_in():
     st.sidebar.success(f"로그인됨: {user_id}")
@@ -31,78 +46,100 @@ else:
 
 st.sidebar.header("종목 선택")
 
-# 1. 기업명 검색 기능
-st.sidebar.subheader("1. 기업명으로 검색")
-# 세션 상태에 KRX 종목 리스트 저장 (앱 로드 시 한 번만 호출)
-if 'krx_stocks_df' not in st.session_state:
-    st.session_state.krx_stocks_df = get_krx_stock_list()
+# KRX 전체 종목 리스트 (종목코드, 종목명)
 all_stocks_df = st.session_state.krx_stocks_df
 
+# 1. 기업명 검색 입력
+search_term = st.sidebar.text_input(
+    "기업명 또는 종목코드 검색",
+    placeholder="예: 삼성전자 또는 005930",
+    key="search_term_input"
+)
 
-search_term = st.sidebar.text_input("기업명 일부를 입력하세요 (예: 삼성)", key="company_search_term")
+# 2. 선택 옵션 생성 (검색 결과 + 최근 조회 + 직접 입력)
+options_dict = {"직접 입력": ""}  # {"표시명": "종목코드"}
 
-filtered_stocks_options = {"선택하세요...": ""} # Selectbox 옵션용 딕셔너리: "표시명": "종목코드"
+# 최근 조회 목록 추가 (중복 방지 및 표시명 통일)
+search_history = get_user_history(user_id, limit=5)
+for item in search_history:
+    display_name = f"{item['company_name']} ({item['stock_code']})"
+    if display_name not in options_dict and item['stock_code']:
+        options_dict[display_name] = item['stock_code']
+
+# 기업명/종목코드 검색 결과 추가
+MAX_SEARCH_RESULTS_DISPLAY = 20
 if search_term and not all_stocks_df.empty:
-    # 'Name' 컬럼이 object 타입이고, NaN 값을 가질 수 있으므로 .astype(str) 처리
-    mask = all_stocks_df['Name'].astype(str).str.contains(search_term, case=False, na=False)
-    filtered_df = all_stocks_df[mask]
+    # 'Name'과 'Symbol' 컬럼이 object 타입이고, NaN 값을 가질 수 있으므로 .astype(str) 처리
+    name_mask = all_stocks_df['Name'].astype(str).str.contains(search_term, case=False, na=False)
+    symbol_mask = all_stocks_df['Symbol'].astype(str).str.contains(search_term, case=False, na=False)
+    filtered_df = all_stocks_df[name_mask | symbol_mask]
+
+    count = 0
     for _, row in filtered_df.iterrows():
         display_name = f"{row['Name']} ({row['Symbol']})"
-        filtered_stocks_options[display_name] = row['Symbol']
+        if display_name not in options_dict and row['Symbol']: # 중복 방지
+            options_dict[display_name] = row['Symbol']
+            count += 1
+            if count >= MAX_SEARCH_RESULTS_DISPLAY:
+                st.sidebar.caption(f"검색 결과가 많아 상위 {MAX_SEARCH_RESULTS_DISPLAY}개만 목록에 추가합니다.")
+                break
+elif not search_term: # 검색어가 없을 때 (초기 상태) "선택하세요"를 맨 위에 추가하고 싶을 수 있음
+    # 또는 그냥 최근 조회 목록만 보여줘도 됨
+    pass
 
-# 검색 결과가 많을 경우를 대비해 표시 개수 제한 (예: 상위 20개)
-MAX_SEARCH_RESULTS = 20
-options_to_display = list(filtered_stocks_options.keys())
-if len(options_to_display) > MAX_SEARCH_RESULTS + 1 : # "+1" for "선택하세요..."
-    options_to_display = options_to_display[:MAX_SEARCH_RESULTS + 1]
-    st.sidebar.caption(f"검색 결과가 너무 많습니다. 상위 {MAX_SEARCH_RESULTS}개만 표시됩니다.")
+
+# Selectbox 표시 순서: 직접 입력 > (검색어 있을 시) 검색 결과 > 최근 조회
+# 현재 options_dict는 순서가 보장되지 않으므로, 원하는 순서대로 리스트를 만들어야 함
+# 여기서는 간단히 생성된 순서대로 사용
+options_list = list(options_dict.keys())
+
+# 현재 선택된 항목이 options_list에 없으면 "직접 입력"으로 설정
+current_selection_key = st.session_state.selected_stock_display_name
+if current_selection_key not in options_list:
+    current_selection_key = "직접 입력"
+    st.session_state.selected_stock_display_name = "직접 입력" # 세션 상태도 업데이트
+
+try:
+    current_selection_index = options_list.index(current_selection_key)
+except ValueError:
+    current_selection_index = 0 # "직접 입력"이 기본
+    st.session_state.selected_stock_display_name = options_list[0]
 
 
-selected_company_display_name = st.sidebar.selectbox(
-    "검색된 기업 선택",
-    options=options_to_display,
-    key="company_selectbox"
+selected_display_name = st.sidebar.selectbox(
+    "종목 선택",
+    options=options_list,
+    index=current_selection_index,
+    key="stock_selector_unified",
+    help="기업명 또는 종목코드를 검색하거나 최근 조회 목록에서 선택하세요. '직접 입력'을 선택하고 아래에 코드를 입력할 수도 있습니다."
 )
 
-# 2. 최근 조회 종목 또는 직접 입력
-st.sidebar.subheader("2. 최근 조회 또는 직접 입력")
-search_history = get_user_history(user_id, limit=5)
-# 최근 조회 종목 옵션: "표시명": "종목코드"
-history_options = {"직접 입력": ""} # 기본 옵션
-for h in search_history:
-    if h['company_name'] and h['stock_code']:
-        history_options[f"{h['company_name']} ({h['stock_code']})"] = h['stock_code']
+# selectbox 변경 시 세션 상태 업데이트 및 종목 코드 설정
+if st.session_state.selected_stock_display_name != selected_display_name:
+    st.session_state.selected_stock_display_name = selected_display_name
+    if selected_display_name != "직접 입력":
+        st.session_state.current_stock_code = options_dict.get(selected_display_name, st.session_state.current_stock_code)
+    # "직접 입력"이 선택되면 current_stock_code는 text_input에서 관리되므로 여기서 변경하지 않음
 
-selected_history_key = st.sidebar.selectbox(
-    "최근 조회 / 직접 입력",
-    options=list(history_options.keys()),
-    key="history_selectbox"
-)
 
-# 종목 코드 결정 로직
-# 세션 상태를 사용하여 종목 코드 값을 유지하고 업데이트
-if 'current_stock_code' not in st.session_state:
-    st.session_state.current_stock_code = search_history[0]['stock_code'] if search_history else "005930" # 초기 기본값
-
-# 기업명 검색 결과에 따라 종목 코드 업데이트
-if selected_company_display_name != "선택하세요...":
-    st.session_state.current_stock_code = filtered_stocks_options.get(selected_company_display_name, st.session_state.current_stock_code)
-# 최근 조회/직접 입력 선택에 따라 종목 코드 업데이트 (기업명 검색이 우선)
-elif selected_history_key != "직접 입력":
-     st.session_state.current_stock_code = history_options.get(selected_history_key, st.session_state.current_stock_code)
-elif selected_history_key == "직접 입력" and selected_company_display_name == "선택하세요...": # 사용자가 명시적으로 직접 입력을 선택한 경우
-    pass # current_stock_code는 이전 값을 유지하거나 아래 text_input에서 변경됨
-
+# 3. 최종 종목 코드 입력 필드
 stock_code = st.sidebar.text_input(
     "종목 코드",
-    value=st.session_state.current_stock_code, # 세션 상태 값 사용
+    value=st.session_state.current_stock_code,
     placeholder="예: 005930",
-    key="stock_code_final_input",
-    on_change=lambda: setattr(st.session_state, 'current_stock_code', st.session_state.stock_code_final_input) # 입력 변경 시 세션 업데이트
+    key="stock_code_final_input_unified",
+    on_change=lambda: setattr(st.session_state, 'current_stock_code', st.session_state.stock_code_final_input_unified)
 ).strip()
-# 사용자가 직접 입력하면 current_stock_code가 업데이트됨
-if stock_code != st.session_state.current_stock_code : # text_input이 변경된 경우
-     st.session_state.current_stock_code = stock_code
+
+# text_input 에서 직접 수정했을 경우 current_stock_code 업데이트
+if stock_code != st.session_state.current_stock_code:
+    st.session_state.current_stock_code = stock_code
+    # 만약 사용자가 직접 입력했다면, selectbox 선택을 "직접 입력"으로 변경해주는 것이 자연스러울 수 있음
+    if st.session_state.selected_stock_display_name != "직접 입력":
+         # 직접 입력시 selectbox를 "직접 입력"으로 바꾸면 사용자 경험이 안좋을 수 있어 주석처리.
+         # st.session_state.selected_stock_display_name = "직접 입력"
+         # st.experimental_rerun() # Selectbox를 업데이트하기 위해 필요할 수 있음
+         pass
 
 
 # 분석 기간 설정
@@ -117,7 +154,7 @@ selected_period_label = st.sidebar.radio(
     "기간 선택",
     options=list(period_options_map.keys()),
     index=default_period_index,
-    key="analysis_period_radio"
+    key="analysis_period_radio_unified"
 )
 days_to_subtract = period_options_map[selected_period_label]
 
@@ -127,29 +164,29 @@ if days_to_subtract != default_days_ago:
 end_date = datetime.now()
 start_date = end_date - timedelta(days=days_to_subtract)
 
-analyze_button = st.sidebar.button("📈 분석 실행", use_container_width=True, key="analyze_button")
+analyze_button = st.sidebar.button("📈 분석 실행", use_container_width=True, key="analyze_button_unified")
 
 # --- 메인 화면 ---
 st.title("📊 AI 기반 국내 주식 분석 도구 (MVP)")
 
-if analyze_button and stock_code:
-    logger.info(f"Analysis started for stock code: {stock_code} by user: {user_id}")
+if analyze_button and stock_code: # stock_code는 이제 st.session_state.current_stock_code와 동일
+    logger.info(f"Analysis started for stock code: {st.session_state.current_stock_code} by user: {user_id}")
     
     with st.spinner("기업 정보 조회 중..."):
-        company_info = fetch_company_info(stock_code)
-        company_name = company_info.get('corp_name', f"종목({stock_code})")
+        company_info = fetch_company_info(st.session_state.current_stock_code)
+        company_name = company_info.get('corp_name', f"종목({st.session_state.current_stock_code})")
         # KRX 리스트에서 회사명 보강
-        if (company_name == f"종목({stock_code})" or company_name is None) and not all_stocks_df.empty:
-            match = all_stocks_df[all_stocks_df['Symbol'] == stock_code]
+        if (company_name == f"종목({st.session_state.current_stock_code})" or company_name is None) and not all_stocks_df.empty:
+            match = all_stocks_df[all_stocks_df['Symbol'] == st.session_state.current_stock_code]
             if not match.empty:
                 company_name_krx = match['Name'].iloc[0]
-                if company_name_krx: # KRX에서 유효한 이름을 가져왔다면
+                if company_name_krx:
                     company_name = company_name_krx
                     logger.info(f"Company name updated from KRX list: {company_name}")
-                    company_info['corp_name'] = company_name # company_info도 업데이트
+                    company_info['corp_name'] = company_name
 
-    st.header(f"분석 결과: {company_name} ({stock_code})")
-    save_user_search(user_id, stock_code, company_name)
+    st.header(f"분석 결과: {company_name} ({st.session_state.current_stock_code})")
+    save_user_search(user_id, st.session_state.current_stock_code, company_name)
 
     tab1, tab2 = st.tabs(["💰 기업 분석 (재무)", "📈 기술적 분석 (차트)"])
 
@@ -158,7 +195,7 @@ if analyze_button and stock_code:
         try:
             with st.spinner("DART 재무 데이터 수집 중..."):
                 current_year = str(datetime.now().year - 1)
-                financial_data_df = fetch_dart_financial_data(stock_code, year=current_year)
+                financial_data_df = fetch_dart_financial_data(st.session_state.current_stock_code, year=current_year)
 
             if financial_data_df is not None and not financial_data_df.empty:
                 with st.spinner("재무 지표 계산 중..."):
@@ -186,17 +223,17 @@ if analyze_button and stock_code:
                     error_msg = financial_ratios.get('error', '알 수 없는 오류') if isinstance(financial_ratios, dict) else "데이터 포맷 오류"
                     st.error(f"{company_name}의 재무 지표를 계산할 수 없습니다. (데이터 부족 또는 오류: {error_msg})")
             else:
-                st.warning(f"{company_name} ({stock_code})에 대한 DART 재무 데이터를 가져올 수 없습니다. (지원되지 않는 종목이거나 데이터가 없을 수 있습니다)")
+                st.warning(f"{company_name} ({st.session_state.current_stock_code})에 대한 DART 재무 데이터를 가져올 수 없습니다. (지원되지 않는 종목이거나 데이터가 없을 수 있습니다)")
         
         except Exception as e:
             st.error(f"기업 분석 중 오류 발생: {e}")
-            logger.error(f"Error in financial analysis pipeline for {stock_code}: {e}", exc_info=True)
+            logger.error(f"Error in financial analysis pipeline for {st.session_state.current_stock_code}: {e}", exc_info=True)
 
     with tab2:
         st.subheader("차트 분석 및 단기 시나리오")
         try:
             with st.spinner(f"주가 데이터 수집 중... (기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')})"):
-                price_data_df = fetch_stock_price_data(stock_code, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
+                price_data_df = fetch_stock_price_data(st.session_state.current_stock_code, start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d'))
 
             if price_data_df is not None and not price_data_df.empty:
                 with st.spinner("기술적 지표 계산 중..."):
@@ -210,17 +247,17 @@ if analyze_button and stock_code:
                     technical_interpretation = interpret_technicals(price_df_with_indicators, company_name)
                     st.info(technical_interpretation)
             else:
-                st.warning(f"{company_name} ({stock_code})에 대한 주가 데이터를 가져올 수 없습니다.")
+                st.warning(f"{company_name} ({st.session_state.current_stock_code})에 대한 주가 데이터를 가져올 수 없습니다.")
         
         except Exception as e:
             st.error(f"기술적 분석 중 오류 발생: {e}")
-            logger.error(f"Error in technical analysis pipeline for {stock_code}: {e}", exc_info=True)
+            logger.error(f"Error in technical analysis pipeline for {st.session_state.current_stock_code}: {e}", exc_info=True)
 
-elif analyze_button and not stock_code:
-    st.error("종목 코드를 입력해주세요.")
+elif analyze_button and not st.session_state.current_stock_code: # stock_code 대신 세션 상태 사용
+    st.error("종목 코드를 입력하거나 선택해주세요.")
 else:
-    st.info("좌측 사이드바에서 분석할 종목을 선택하거나 코드를 입력하고 '분석 실행' 버튼을 클릭하세요.")
+    st.info("좌측 사이드바에서 분석할 종목을 검색, 선택하거나 코드를 직접 입력하고 '분석 실행' 버튼을 클릭하세요.")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("제작: 스켈터랩스")
-st.sidebar.markdown("Ver 0.2 (MVP)")
+st.sidebar.markdown("Ver 0.3 (MVP)")
