@@ -137,7 +137,7 @@ search_history = get_user_history(user_id, limit=3) # 중복 제거된 기록 �
 if not search_history:
     st.sidebar.caption("최근 조회 기록이 없습니다.")
 
-for idx, item in enumerate(user_history):
+for idx, item in enumerate(search_history):
     history_display_name = item["corp_name"]
     key = f"history_{item['stock_code']}_{idx}"
     if st.sidebar.button(history_display_name, key=key, use_container_width=True, type="secondary"):
