@@ -4,6 +4,7 @@ import requests
 import zipfile
 import io
 import xml.etree.ElementTree as ET
+from typing import Optional, Tuple
 
 import config
 from utils import timed_cache, get_logger
@@ -20,7 +21,7 @@ except ImportError:
 
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24)
-def get_corp_code_and_name(stock_code: str) -> tuple[str | None, str | None]:
+def get_corp_code_and_name(stock_code: str) -> Tuple[Optional[str], Optional[str]]:
     api_key = config.DART_API_KEY
     if not api_key or api_key == "YOUR_DART_API_KEY_HERE":
         logger.error("DART API 키가 config.py에 설정되지 않았습니다.")
