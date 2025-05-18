@@ -1,10 +1,12 @@
+
+
 import pandas as pd
 import requests
 import zipfile
 import io
 import xml.etree.ElementTree as ET
 
-from  import config
+import config # 수정: from . import config 또는 import config (프로젝트 구조에 따라) -> 여기서는 import config
 from utils import timed_cache, get_logger
 
 logger = get_logger(__name__)
@@ -79,13 +81,13 @@ def get_corp_code_and_name(stock_code: str) -> tuple[str | None, str | None]:
 
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS)
-def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11014", fs_div: str = "CON") -> pd.DataFrame:
+def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11014", fs_div: str = "CFS") -> pd.DataFrame: # 수정: fs_div 기본값을 "CFS"로 변경
     """
     DART에서 재무제표 데이터를 불러옵니다.
     - stock_code: 종목코드 (예: '005930')
     - year: 보고서 기준 연도 (예: '2023')
     - report_code: 보고서 코드 (11011: 1분기, 11012: 반기, 11013: 3분기, 11014: 사업보고서 - 기본값)
-    - fs_div: 재무제표 구분 (OFS: 개별/별도, CON: 연결 - 기본값. DART API 명세에 따라 CFS일 수도 있음)
+    - fs_div: 재무제표 구분 (OFS: 개별/별도 재무제표, CFS: 연결재무제표 - 기본값) # 수정: DART API 명세에 맞게 설명 변경
     """
     api_key = config.DART_API_KEY
     if not api_key or api_key == "YOUR_DART_API_KEY_HERE":
