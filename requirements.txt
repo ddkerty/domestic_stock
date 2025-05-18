@@ -4,3 +4,5 @@ numpy>=1.23
 plotly>=5.18
 requests>=2.31
 python-dotenv>=1.0.0
+beautifulsoup4
+lxml

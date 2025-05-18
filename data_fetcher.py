@@ -120,21 +120,47 @@ def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS // 4)
 def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    logger.info(f"주가 데이터 요청: {stock_code} (기간: {start_date} ~ {end_date})")
-    if not FDR_AVAILABLE:
-        logger.warning("FinanceDataReader가 설치되지 않아 주가 데이터를 가져올 수 없습니다.")
-        return pd.DataFrame()
+    """
+    네이버 금융에서 주가 데이터를 크롤링하여 반환합니다.
+    """
     try:
-        df = fdr.DataReader(stock_code, start_date, end_date)
-        if df.empty:
-            logger.warning(f"주가 데이터 없음: {stock_code} (기간: {start_date} ~ {end_date})")
-            return pd.DataFrame()
-        df = df.reset_index()
-        logger.info(f"주가 데이터 수신 완료: {stock_code}, {len(df)} 행")
-        return df
+        logger.info(f"네이버 시세 요청 시작: {stock_code}, 기간: {start_date} ~ {end_date}")
+        base_url = f"https://finance.naver.com/item/sise_day.nhn?code={stock_code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        dfs = []
+
+        for page in range(1, 11):  # 10페이지 ≒ 약 200일
+            url = f"{base_url}&page={page}"
+            res = requests.get(url, headers=headers)
+            if res.status_code != 200:
+                logger.warning(f"페이지 {page} 요청 실패: {res.status_code}")
+                continue
+
+            tables = pd.read_html(res.text)
+            df = tables[0] if tables else pd.DataFrame()
+            dfs.append(df)
+
+        df_all = pd.concat(dfs, ignore_index=True)
+        df_all = df_all.dropna()
+        df_all.columns = ['Date', 'Close', 'Diff', 'Open', 'High', 'Low', 'Volume']
+        df_all['Date'] = pd.to_datetime(df_all['Date'], format='%Y.%m.%d')
+        df_all = df_all.sort_values('Date')
+
+        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+            df_all[col] = pd.to_numeric(df_all[col].astype(str).str.replace(',', ''), errors='coerce')
+
+        if start_date:
+            df_all = df_all[df_all['Date'] >= pd.to_datetime(start_date)]
+        if end_date:
+            df_all = df_all[df_all['Date'] <= pd.to_datetime(end_date)]
+
+        logger.info(f"네이버 시세 수집 완료: {len(df_all)}건")
+        return df_all[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].reset_index(drop=True)
+
     except Exception as e:
-        logger.error(f"{stock_code} 주가 데이터 조회 오류: {e}")
+        logger.error(f"네이버 시세 크롤링 중 오류: {e}")
         return pd.DataFrame()
+
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24)
 def fetch_company_info(stock_code: str) -> dict:
