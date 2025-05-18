@@ -173,6 +173,19 @@ end_date = datetime.now()
 start_date = end_date - timedelta(days=days_to_subtract)
 
 analyze_button = st.sidebar.button("📈 분석 실행", use_container_width=True, key="analyze_button_unified")
+# 입력한 값이 종목코드(6자리 숫자)면 직접 분석에 반영
+if analyze_button:
+    user_input = st.session_state.get("stock_search_input_key", "").strip()
+
+    if user_input.isdigit() and len(user_input) == 6:
+        if not st.session_state.krx_stocks_df['Symbol'].isin([user_input]).any():
+            st.warning(f"입력한 종목코드 '{user_input}'는 KRX 목록에 존재하지 않습니다.")
+            st.stop()  # 분석 실행 중단
+        else:
+            logger.info(f"직접 입력된 종목코드 감지: {user_input}")
+            st.session_state.current_stock_code = user_input
+
+
 
 # --- 메인 화면 ---
 st.title("📊 AI 기반 국내 주식 분석 도구 (MVP)")
@@ -180,21 +193,21 @@ st.title("📊 AI 기반 국내 주식 분석 도구 (MVP)")
 final_stock_code_to_analyze = st.session_state.current_stock_code
 
 if analyze_button and final_stock_code_to_analyze:
+    
     logger.info(f"Analysis started for stock code: {final_stock_code_to_analyze} by user: {user_id}")
     
     with st.spinner("기업 정보 조회 중..."):
-        company_info = fetch_company_info(final_stock_code_to_analyze)
-        company_name = company_info.get('corp_name') or final_stock_code_to_analyze
+        company_info = fetch_company_info(final_stock_code_to_analyze) # DART 우선, 실패 시 FDR
+        company_name = company_info.get('corp_name', f"종목({final_stock_code_to_analyze})")
+        # fetch_company_info에서 이미 FDR 조회를 시도하므로, 여기서는 추가 보강 불필요할 수 있음.
+        # 만약 fetch_company_info가 항상 DART만 본다면 여기서 KRX 조회 로직 유지. (현재는 DART 실패 시 FDR 조회)
 
-    # 중복 방지된 헤더 출력
-    if company_name == final_stock_code_to_analyze:
-        st.header(f"분석 결과: {company_name}")
-    else:
-        st.header(f"분석 결과: {company_name} ({final_stock_code_to_analyze})")
-
-    # 검색 기록 저장 (중복 방지)
-    save_user_search(user_id, final_stock_code_to_analyze, company_name)
-
+    st.header(f"분석 결과: {company_name} ({final_stock_code_to_analyze})")
+    # 검색 기록 저장 시점: 분석 실행 시 (선택 확정 후)
+    if company_name != f"종목({final_stock_code_to_analyze})": # 유효한 회사명을 가져왔을 때만 저장
+        save_user_search(user_id, final_stock_code_to_analyze, company_name)
+    else: # 회사명을 못가져온 경우, stock_code만으로 저장하거나 저장하지 않을 수 있음
+        save_user_search(user_id, final_stock_code_to_analyze, f"기업({final_stock_code_to_analyze})")
 
 
     tab1, tab2 = st.tabs(["💰 기업 분석 (재무)", "📈 기술적 분석 (차트)"])
