@@ -1,3 +1,5 @@
+
+import pandas as pd # 이 줄을 추가해주세요
 from utils import get_logger
 
 logger = get_logger(__name__)
@@ -36,7 +38,11 @@ def interpret_financials(ratios: dict, company_name: str = ""):
     else:
         interpretation += "- 부채비율 정보를 가져오지 못했습니다.\n"
         
-    interpretation += f"- 최근 보고된 매출액은 약 **{sales:,.0f}** (단위: DART 제공 단위 확인 필요, 보통 천원 또는 백만원) 입니다.\n"
+    # 매출액이 숫자인 경우에만 포맷팅 시도
+    if isinstance(sales, (int, float)):
+        interpretation += f"- 최근 보고된 매출액은 약 **{sales:,.0f}** (단위: DART 제공 단위 확인 필요, 보통 천원 또는 백만원) 입니다.\n"
+    else:
+        interpretation += f"- 최근 보고된 매출액: **{sales}**\n" # 숫자가 아니면 그대로 표시
     
     interpretation += "\n*주의: 위 해석은 제공된 수치를 기반으로 한 일반적인 의견이며, 투자 결정은 다양한 정보를 종합적으로 고려하여 신중하게 이루어져야 합니다.*"
     
@@ -57,15 +63,15 @@ def interpret_technicals(price_df_with_indicators: pd.DataFrame, company_name: s
 
     if last_data is not None:
         current_close = last_data.get('Close', 'N/A')
-        interpretation += f"- 현재 종가: **{current_close:,.0f}** (해당 날짜: {last_data.get('Date', 'N/A').strftime('%Y-%m-%d') if pd.notna(last_data.get('Date')) else 'N/A'})\n"
+        interpretation += f"- 현재 종가: **{current_close:,.0f if isinstance(current_close, (int, float)) else current_close}** (해당 날짜: {last_data.get('Date', 'N/A').strftime('%Y-%m-%d') if pd.notna(last_data.get('Date')) and hasattr(last_data.get('Date'), 'strftime') else 'N/A'})\n" # hasattr 추가
 
         if 'SMA_5' in last_data and 'SMA_20' in last_data and pd.notna(last_data['SMA_5']) and pd.notna(last_data['SMA_20']):
             sma5 = last_data['SMA_5']
             sma20 = last_data['SMA_20']
             interpretation += f"- 단기 이동평균(5일): {sma5:,.0f}, 중기 이동평균(20일): {sma20:,.0f}\n"
-            if sma5 > sma20 and current_close > sma5 :
+            if sma5 > sma20 and (isinstance(current_close, (int, float)) and current_close > sma5): # current_close 타입 확인
                 interpretation += "  - 단기 상승 추세가 나타나고 있으며, 현재 주가가 단기 이평선 위에 있어 긍정적 신호로 볼 수 있습니다. (골든 크로스 근접 또는 발생 가능성)\n"
-            elif sma5 < sma20 and current_close < sma5:
+            elif sma5 < sma20 and (isinstance(current_close, (int, float)) and current_close < sma5): # current_close 타입 확인
                 interpretation += "  - 단기 하락 추세가 나타나고 있으며, 현재 주가가 단기 이평선 아래에 있어 주의가 필요합니다. (데드 크로스 근접 또는 발생 가능성)\n"
             else:
                 interpretation += "  - 이동평균선들이 혼조세를 보이거나 주가가 이평선 사이에 위치하여 방향성 탐색 구간일 수 있습니다.\n"
