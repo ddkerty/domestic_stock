@@ -138,16 +138,17 @@ if not search_history:
     st.sidebar.caption("최근 조회 기록이 없습니다.")
 
 for idx, item in enumerate(search_history):
-    history_display_name = item["corp_name"]
-    key = f"history_{item['stock_code']}_{idx}"
+    stock_code = item.get("stock_code", "UNKNOWN")
+    corp_name = item.get("corp_name", f"기업({stock_code})")
+    history_display_name = corp_name
+    key = f"history_{stock_code}_{idx}"
     if st.sidebar.button(history_display_name, key=key, use_container_width=True, type="secondary"):
-        ...
-
-        st.session_state.current_stock_code = item['stock_code']
+        st.session_state.current_stock_code = stock_code
         st.session_state.search_input_value = history_display_name
         st.session_state.show_search_results = False
-        logger.info(f"Item selected from history: {history_display_name}, Code: {item['stock_code']}")
+        logger.info(f"Item selected from history: {history_display_name}, Code: {stock_code}")
         st.rerun()
+
 
 # 분석 기간 설정
 st.sidebar.header("분석 기간 (기술적 분석)")
