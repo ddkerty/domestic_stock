@@ -1,12 +1,11 @@
 
-
 import pandas as pd
 import requests
 import zipfile
 import io
 import xml.etree.ElementTree as ET
 
-import config # 수정: from . import config 또는 import config (프로젝트 구조에 따라) -> 여기서는 import config
+import config
 from utils import timed_cache, get_logger
 
 logger = get_logger(__name__)
@@ -39,7 +38,6 @@ def get_corp_code_and_name(stock_code: str) -> tuple[str | None, str | None]:
         response.raise_for_status() # HTTP 오류 발생 시 예외 발생
 
         with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
-            # 압축 해제 시 파일명 인코딩 문제 방지 (CP437 또는 UTF-8 시도)
             xml_filename = None
             for name in zf.namelist():
                 if name.upper() == "CORPCODE.XML": # 대소문자 무시
@@ -81,47 +79,36 @@ def get_corp_code_and_name(stock_code: str) -> tuple[str | None, str | None]:
 
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS)
-def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11014", fs_div: str = "CFS") -> pd.DataFrame: # 수정: fs_div 기본값을 "CFS"로 변경
-    """
-    DART에서 재무제표 데이터를 불러옵니다.
-    - stock_code: 종목코드 (예: '005930')
-    - year: 보고서 기준 연도 (예: '2023')
-    - report_code: 보고서 코드 (11011: 1분기, 11012: 반기, 11013: 3분기, 11014: 사업보고서 - 기본값)
-    - fs_div: 재무제표 구분 (OFS: 개별/별도 재무제표, CFS: 연결재무제표 - 기본값) # 수정: DART API 명세에 맞게 설명 변경
-    """
+def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11014", fs_div: str = "CFS") -> pd.DataFrame:
     api_key = config.DART_API_KEY
     if not api_key or api_key == "YOUR_DART_API_KEY_HERE":
         logger.warning("DART API 키가 설정되어 있지 않습니다. config.py에서 설정해주세요. 재무 데이터를 가져올 수 없습니다.")
         return pd.DataFrame()
 
-    corp_code, _ = get_corp_code_and_name(stock_code) # 회사명은 여기서는 사용 안함
+    corp_code, _ = get_corp_code_and_name(stock_code)
     if not corp_code:
         logger.error(f"DART: {stock_code}에 대한 회사 코드를 찾지 못해 재무제표를 요청할 수 없습니다.")
         return pd.DataFrame()
 
-    # API URL (단일회사 전체 재무제표: fnlttSinglAcntAll)
-    # https://opendart.fss.or.kr/guide/detail.do?apiGrpCd=DS003&apiId=2019020
     url = (
         f"https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
         f"?crtfc_key={api_key}"
         f"&corp_code={corp_code}"
         f"&bsns_year={year}"
         f"&reprt_code={report_code}"
-        f"&fs_div={fs_div}" # CFS 또는 OFS
+        f"&fs_div={fs_div}"
     )
-    logger.info(f"DART: 재무제표 요청 - URL: {url.replace(api_key, '******')}") # 로그에는 API 키 숨김
+    logger.info(f"DART: 재무제표 요청 - URL: {url.replace(api_key, '******')}")
 
     try:
         response = requests.get(url, timeout=15)
         response.raise_for_status()
         result = response.json()
 
-        if result.get('status') == '000': # 성공
+        if result.get('status') == '000':
             if 'list' in result and result['list']:
                 df = pd.DataFrame(result['list'])
                 logger.info(f"DART: 재무제표 {len(df)}건 수신 완료 (Stock: {stock_code}, Year: {year}, Report: {report_code}, FS: {fs_div})")
-                # 필요한 컬럼만 선택하거나 데이터 타입 변환 등 추가 전처리 가능
-                # 예: 금액 관련 컬럼을 숫자형으로 변환
                 amount_cols = ['thstrm_amount', 'frmtrm_amount', 'bfefrmtrm_amount']
                 for col in amount_cols:
                     if col in df.columns:
@@ -130,10 +117,10 @@ def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11
             else:
                 logger.warning(f"DART: 재무제표 데이터가 없습니다 (status 000, but no list). (Stock: {stock_code}, Year: {year}, Report: {report_code}, FS: {fs_div})")
                 return pd.DataFrame()
-        elif result.get('status') == '013': # 조회된 데이터 없음
+        elif result.get('status') == '013':
             logger.warning(f"DART: 해당 조건의 재무제표 데이터가 없습니다 (status 013). (Stock: {stock_code}, Year: {year}, Report: {report_code}, FS: {fs_div}). 메시지: {result.get('message')}")
             return pd.DataFrame()
-        else: # 기타 오류
+        else:
             logger.error(f"DART API 오류: Status {result.get('status')}, Message: {result.get('message')} (Stock: {stock_code}, Year: {year}, Report: {report_code}, FS: {fs_div})")
             return pd.DataFrame()
 
@@ -151,15 +138,11 @@ def fetch_dart_financial_data(stock_code: str, year: str, report_code: str = "11
         return pd.DataFrame()
 
 
-@timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS // 4) # 시세는 더 자주 업데이트될 수 있으므로 캐시 시간 짧게
+@timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS // 4)
 def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: str = None) -> pd.DataFrame:
-    """
-    FinanceDataReader를 사용하여 주가 시세 데이터를 가져옵니다.
-    """
     logger.info(f"주가 데이터 요청: {stock_code} (기간: {start_date} ~ {end_date})")
     if not FDR_AVAILABLE:
-        logger.warning("FinanceDataReader가 설치되지 않아 주가 데이터를 가져올 수 없습니다. 목업 데이터를 사용합니다 (현재 목업 없음).")
-        # 목업 데이터가 필요하면 여기에 추가
+        logger.warning("FinanceDataReader가 설치되지 않아 주가 데이터를 가져올 수 없습니다.")
         return pd.DataFrame()
 
     try:
@@ -167,13 +150,7 @@ def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: st
         if df.empty:
             logger.warning(f"주가 데이터 없음: {stock_code} (기간: {start_date} ~ {end_date})")
             return pd.DataFrame()
-        
-        # Date 인덱스를 컬럼으로 변환하고, 컬럼명 변경 (Open, High, Low, Close, Volume, Change)
         df = df.reset_index()
-        # 컬럼명 표준화 (FinanceDataReader는 이미 'Open', 'High', 'Low', 'Close', 'Volume' 등을 사용)
-        # 만약 다른 이름이라면 여기서 rename
-        # df.rename(columns={'날짜': 'Date', '시가': 'Open', ...}, inplace=True)
-        
         logger.info(f"주가 데이터 수신 완료: {stock_code}, {len(df)} 행")
         return df
     except Exception as e:
@@ -181,33 +158,31 @@ def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: st
         return pd.DataFrame()
 
 
-@timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24) # 자주 바뀌지 않음
+@timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24)
 def fetch_company_info(stock_code: str) -> dict:
-    """
-    종목 코드로 기업명 등 기본 정보를 가져옵니다.
-    주로 get_corp_code_and_name 함수를 사용합니다.
-    """
     logger.info(f"기업 정보 요청: {stock_code}")
     corp_code, corp_name = get_corp_code_and_name(stock_code)
 
     if corp_name and corp_code:
         return {'stock_code': stock_code, 'corp_code': corp_code, 'corp_name': corp_name}
     else:
-        # DART에서 정보를 못 가져온 경우, 다른 방법 시도 (예: FinanceDataReader의 listing 사용 - 여기선 단순 fallback)
-        # 또는 그냥 실패로 처리
         logger.warning(f"{stock_code}에 대한 기업명을 DART에서 가져오지 못했습니다.")
-        
-        # FDR을 이용한 회사명 가져오기 시도 (선택적)
-        # if FDR_AVAILABLE:
-        # try:
-        # krx_listing = fdr.StockListing('KRX') # 또는 KOSPI, KOSDAQ 등
-        # company = krx_listing[krx_listing['Symbol'] == stock_code]
-        # if not company.empty:
-        # corp_name_fdr = company['Name'].iloc[0]
-        #         logger.info(f"FinanceDataReader에서 회사명 조회: {corp_name_fdr}")
-        # return {'stock_code': stock_code, 'corp_code': None, 'corp_name': corp_name_fdr}
-        # except Exception as e:
-        # logger.warning(f"FinanceDataReader로 회사명 조회 중 오류: {e}")
-        # pass
-            
         return {'stock_code': stock_code, 'corp_code': None, 'corp_name': f"기업({stock_code})"}
+
+@timed_cache(seconds=3600 * 24) # 하루 캐시
+def get_krx_stock_list() -> pd.DataFrame:
+    """KRX 전체 종목 리스트 (종목명, 종목코드)를 반환합니다."""
+    logger.info("Fetching KRX stock list...")
+    if not FDR_AVAILABLE:
+        logger.warning("FinanceDataReader가 설치되지 않아 KRX 종목 리스트를 가져올 수 없습니다.")
+        return pd.DataFrame(columns=['Symbol', 'Name'])
+    try:
+        krx = fdr.StockListing('KRX') # KOSPI, KOSDAQ, KONEX 포함
+        # 일반 주식만 필터링 (ETF, ETN, 스팩, 리츠 등 제외 - 선택 사항)
+        # krx = krx[krx['Market'].isin(['KOSPI', 'KOSDAQ'])] # 시장 구분으로 필터링
+        # krx = krx[~krx['Name'].str.contains('스팩|제[0-9]+호|리츠|ETF|ETN|TIGER|KODEX|ARIRANG|HANARO|KBSTAR|MAP|SOL|KOSEF|ACE|WOORI|TIMEFOLIO|BNK|FOCUS|옥수수|알루미늄|원유|금|은|팔라듐|니켈|아연|커피|설탕|콩|천연가스', case=False, na=False)]
+        logger.info(f"Fetched {len(krx)} stocks from KRX.")
+        return krx[['Symbol', 'Name']]
+    except Exception as e:
+        logger.error(f"Error fetching KRX stock list: {e}")
+        return pd.DataFrame(columns=['Symbol', 'Name']) # 오류 시 빈 DataFrame 반환
