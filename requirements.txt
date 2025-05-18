@@ -1,10 +1,14 @@
-streamlit
-pandas
-numpy
-# OpenDartReader (직접 requests 사용으로 대체)
-python-dotenv
-plotly
-# ta-lib (필요시)
-# firebase-admin (필요시)
-requests  # 명시적으로 추가 (DART API 직접 호출용)
-FinanceDataReader # 주가 데이터 수집용
+# 📦 필수 라이브러리
+streamlit>=1.30
+pandas>=1.5
+numpy>=1.23
+plotly>=5.18
+requests>=2.31
+FinanceDataReader>=0.9.50
+
+# 🔐 환경변수 관리 (로컬 개발용만)
+python-dotenv>=1.0.0
+
+# ⚙️ 선택 라이브러리 (추후 확장 대비)
+# ta-lib==0.4.0           # 기술 분석 강화용 (설치 어려움)
+# firebase-admin          # Firebase Auth 연동 시 사용
