@@ -181,7 +181,8 @@ def fetch_company_info(stock_code: str) -> dict:
                         return {'stock_code': stock_code, 'corp_code': None, 'corp_name': corp_name_fdr}
             except Exception as e_fdr:
                 logger.warning(f"FinanceDataReader로 회사명 조회 중 오류: {e_fdr}")
-        return {'stock_code': stock_code, 'corp_code': None, 'corp_name': f"기업({stock_code})"}
+        return {'stock_code': stock_code, 'corp_code': None, 'corp_name': "기업명 미확인"}
+
 
 
 @timed_cache(seconds=3600 * 24) # 하루 캐시
