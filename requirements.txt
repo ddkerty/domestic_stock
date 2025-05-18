@@ -1,14 +1,7 @@
-# 핵심 라이브러리
+# 안정 실행 가능한 구성 (FDR 제거)
 streamlit>=1.30
 pandas>=1.5
 numpy>=1.23
 plotly>=5.18
 requests>=2.31
-FinanceDataReader>=0.9.50
-
-# 로컬 개발 시 환경변수 관리용 (Cloud에서는 무시됨)
 python-dotenv>=1.0.0
-
-# ⚠️ 아래 항목은 미사용 또는 향후 추가 필요 시에만
-# firebase-admin       # Firebase Auth 사용 시 추가
-# ta-lib               # 기술적 분석용, 설치 어려움
