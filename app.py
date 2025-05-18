@@ -201,9 +201,19 @@ if analyze_button and final_stock_code_to_analyze:
         st.subheader("재무 분석 및 전략 해석")
         try:
             with st.spinner("DART 재무 데이터 수집 중..."):
-                current_year = str(datetime.now().year - 1)
-                financial_data_df = fetch_dart_financial_data(final_stock_code_to_analyze, year=current_year)
+                now = datetime.now()
+                
+                # 4월 전이면 아직 작년 사업보고서(11014)가 안 올라왔을 가능성이 있음
+                if now.month >= 5:
+                    current_year = str(now.year - 1)  # 예: 2024년 → 2023
+                else:
+                    current_year = str(now.year - 2)  # 예: 2025년 3월 → 2023
 
+                financial_data_df = fetch_dart_financial_data(
+                    final_stock_code_to_analyze,
+                    year=current_year,
+                    report_code="11014"  # 연간 사업보고서
+                )
             if financial_data_df is not None and not financial_data_df.empty:
                 with st.spinner("재무 지표 계산 중..."):
                     financial_ratios = calculate_financial_ratios(financial_data_df)
