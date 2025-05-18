@@ -2,7 +2,7 @@
 import pandas as pd
 import requests
 import zipfile
-import io
+import io # io 모듈 임포트
 import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
 
@@ -126,29 +126,85 @@ def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: st
     try:
         logger.info(f"네이버 시세 요청 시작: {stock_code}, 기간: {start_date} ~ {end_date}")
         base_url = f"https://finance.naver.com/item/sise_day.nhn?code={stock_code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'} # 좀 더 일반적인 User-Agent
         dfs = []
+        
+        # 네이버 금융은 한 페이지에 10개 거래일 표시
+        # 요청 기간에 따라 필요한 페이지 수 계산 (대략적으로)
+        # 여기서는 최대 10페이지 (약 100 거래일)로 제한
+        max_pages_to_fetch = 10 
+        if start_date and end_date:
+            try:
+                s_date = pd.to_datetime(start_date)
+                e_date = pd.to_datetime(end_date)
+                # 대략적인 거래일 수 (주말 제외, 공휴일 미고려)
+                business_days = pd.bdate_range(s_date, e_date)
+                num_days_needed = len(business_days)
+                max_pages_to_fetch = (num_days_needed // 10) + 2 # 필요한 페이지 수 + 여유분
+                if max_pages_to_fetch > 30 : max_pages_to_fetch = 30 # 과도한 요청 방지 (최대 300 거래일)
+                logger.info(f"필요 예상 페이지 수: {max_pages_to_fetch-2}, 실제 요청 페이지 수: {max_pages_to_fetch}")
+            except Exception:
+                pass # 날짜 파싱 실패 시 기본값 사용
 
-        for page in range(1, 11):  # 10페이지 ≒ 약 200일
+
+        for page in range(1, max_pages_to_fetch + 1): 
             url = f"{base_url}&page={page}"
-            res = requests.get(url, headers=headers)
-            if res.status_code != 200:
-                logger.warning(f"페이지 {page} 요청 실패: {res.status_code}")
-                continue
+            res = requests.get(url, headers=headers, timeout=5) # 타임아웃 추가
+            res.raise_for_status() # HTTP 오류 발생 시 예외
 
-            tables = pd.read_html(res.text)
-            df = tables[0] if tables else pd.DataFrame()
-            dfs.append(df)
+            # FutureWarning 해결: io.StringIO 사용
+            html_content = io.StringIO(res.text)
+            tables = pd.read_html(html_content)
+
+            if not tables or len(tables) == 0:
+                logger.warning(f"페이지 {page}에서 테이블을 찾을 수 없습니다.")
+                if page == 1: # 첫 페이지부터 데이터가 없으면 중단
+                    return pd.DataFrame()
+                break # 데이터가 더 이상 없으면 중단
+
+            df_page = tables[0]
+            if df_page.empty or df_page.shape[1] < 7: # 컬럼 개수 등으로 유효성 검사
+                logger.warning(f"페이지 {page}의 테이블 형식이 예상과 다릅니다: {df_page.head()}")
+                if page == 1: return pd.DataFrame()
+                break
+            
+            # NaN 행 제거 (보통 페이지 마지막에 빈 행이 있음)
+            df_page = df_page.dropna(how='all') 
+            if df_page.iloc[:, 0].isnull().all(): # 첫 번째 열이 모두 NaN이면 유효한 데이터가 없는 것으로 간주
+                 logger.info(f"페이지 {page}에 더 이상 유효한 데이터가 없습니다.")
+                 break
+
+            dfs.append(df_page)
+            
+            # 현재 페이지의 마지막 날짜가 start_date보다 이전이면 더 이상 가져올 필요 없음 (선택적 최적화)
+            try:
+                last_date_on_page_str = df_page.iloc[-1, 0]
+                last_date_on_page = pd.to_datetime(last_date_on_page_str, format='%Y.%m.%d')
+                if start_date and last_date_on_page < pd.to_datetime(start_date):
+                    logger.info(f"페이지 {page}의 마지막 날짜({last_date_on_page_str})가 시작 날짜({start_date}) 이전이므로 중단합니다.")
+                    break
+            except Exception as date_e:
+                logger.warning(f"페이지 {page} 날짜 파싱 중 오류: {date_e}")
+
+
+        if not dfs:
+            logger.warning(f"{stock_code}에 대한 주가 데이터를 가져오지 못했습니다 (dfs 비어있음).")
+            return pd.DataFrame()
 
         df_all = pd.concat(dfs, ignore_index=True)
-        df_all = df_all.dropna()
-        df_all.columns = ['Date', 'Close', 'Diff', 'Open', 'High', 'Low', 'Volume']
+        df_all = df_all.dropna(subset=[df_all.columns[0]]) # 첫 번째 열(날짜) 기준으로 NaN 제거
+        df_all.columns = ['Date', 'Close', 'Diff', 'Open', 'High', 'Low', 'Volume'] # 컬럼명 재확인 및 설정
+        
+        # 중복된 날짜 제거 (가장 처음 나온 데이터 유지)
+        df_all = df_all.drop_duplicates(subset=['Date'], keep='first')
+
         df_all['Date'] = pd.to_datetime(df_all['Date'], format='%Y.%m.%d')
-        df_all = df_all.sort_values('Date')
+        df_all = df_all.sort_values('Date', ascending=True)
 
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df_all[col] = pd.to_numeric(df_all[col].astype(str).str.replace(',', ''), errors='coerce')
 
+        # 최종적으로 날짜 필터링
         if start_date:
             df_all = df_all[df_all['Date'] >= pd.to_datetime(start_date)]
         if end_date:
@@ -157,36 +213,43 @@ def fetch_stock_price_data(stock_code: str, start_date: str = None, end_date: st
         logger.info(f"네이버 시세 수집 완료: {len(df_all)}건")
         return df_all[['Date', 'Open', 'High', 'Low', 'Close', 'Volume']].reset_index(drop=True)
 
+    except requests.exceptions.RequestException as req_e:
+        logger.error(f"네이버 시세 요청 중 네트워크 오류: {req_e} (URL: {url if 'url' in locals() else 'N/A'})")
+        return pd.DataFrame()
     except Exception as e:
-        logger.error(f"네이버 시세 크롤링 중 오류: {e}")
+        logger.error(f"네이버 시세 크롤링 중 예외 발생: {e}")
         return pd.DataFrame()
 
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24)
 def fetch_company_info(stock_code: str) -> dict:
-    logger.info(f"기업 정보 요청 (DART): {stock_code}")
-    corp_code, corp_name = get_corp_code_and_name(stock_code)
-    if corp_name and corp_code:
-        return {'stock_code': stock_code, 'corp_code': corp_code, 'corp_name': corp_name}
-    else:
+    logger.info(f"기업 정보 요청 (DART 우선): {stock_code}")
+    corp_code, corp_name_dart = get_corp_code_and_name(stock_code) # DART에서 corp_code와 함께 이름 가져옴
+    
+    final_corp_name = None
+
+    if corp_name_dart: # DART에서 이름을 가져왔다면 우선 사용
+        final_corp_name = corp_name_dart
+        logger.info(f"DART에서 기업명 조회: {final_corp_name}")
+    else: # DART에서 못 가져왔다면 FDR 시도
         logger.warning(f"{stock_code}에 대한 기업명을 DART에서 가져오지 못했습니다. FDR 목록에서 시도합니다.")
         if FDR_AVAILABLE:
             try:
-                krx_list = get_krx_stock_list() # 캐시된 목록 사용
+                krx_list = get_krx_stock_list() 
                 if not krx_list.empty:
                     company_row = krx_list[krx_list['Symbol'] == stock_code]
                     if not company_row.empty:
                         corp_name_fdr = company_row['Name'].iloc[0]
-                        logger.info(f"FinanceDataReader에서 회사명 조회 성공: {corp_name_fdr}")
-                        return {'stock_code': stock_code, 'corp_code': None, 'corp_name': corp_name_fdr}
+                        final_corp_name = corp_name_fdr
+                        logger.info(f"FinanceDataReader에서 회사명 조회 성공: {final_corp_name}")
             except Exception as e_fdr:
                 logger.warning(f"FinanceDataReader로 회사명 조회 중 오류: {e_fdr}")
-        return {
-        'stock_code': stock_code,
-        'corp_code': None,
-        'corp_name': stock_code  # 종목 코드만 표시 (기업명 미확인일 경우)
-        }
 
+    if final_corp_name is None: # DART와 FDR 모두 실패 시
+        logger.warning(f"DART 및 FDR에서 {stock_code}의 기업명을 찾지 못했습니다.")
+        final_corp_name = stock_code # 종목 코드를 이름으로 사용
+
+    return {'stock_code': stock_code, 'corp_code': corp_code, 'corp_name': final_corp_name}
 
 
 @timed_cache(seconds=3600 * 24) # 하루 캐시
@@ -195,21 +258,15 @@ def get_krx_stock_list() -> pd.DataFrame:
     logger.info("Fetching KRX stock list...")
     if not FDR_AVAILABLE:
         logger.warning("FinanceDataReader가 설치되지 않아 KRX 종목 리스트를 가져올 수 없습니다.")
-        return pd.DataFrame(columns=['Symbol', 'Name']) # 빈 DataFrame에 컬럼명 명시
+        return pd.DataFrame(columns=['Symbol', 'Name']) 
     try:
-        # KRX, KOSPI, KOSDAQ, KONEX 등
-        krx = fdr.StockListing('KRX') # 전체 시장
-        # 일반적인 주식 외 상품 제외 (선택적)
-        # 아래 필터는 예시이며, 필요에 따라 조정
-        # krx = krx[~krx['Name'].str.contains('스팩|제[0-9]+호|리츠|ETF|ETN|선물|옵션|인버스|레버리지', case=False, na=False)]
-        # krx = krx[krx['Market'].isin(['KOSPI', 'KOSDAQ'])] # 코스피, 코스닥만 필터링
-        
+        krx = fdr.StockListing('KRX') 
         if krx.empty:
             logger.warning("FinanceDataReader에서 KRX 목록을 가져왔으나 비어있습니다.")
             return pd.DataFrame(columns=['Symbol', 'Name'])
 
         logger.info(f"Fetched {len(krx)} stocks from KRX.")
-        return krx[['Symbol', 'Name']].dropna(subset=['Symbol', 'Name']) # Symbol, Name이 NaN인 경우 제거
+        return krx[['Symbol', 'Name']].dropna(subset=['Symbol', 'Name'])
     except Exception as e:
         logger.error(f"Error fetching KRX stock list: {e}")
         return pd.DataFrame(columns=['Symbol', 'Name'])
