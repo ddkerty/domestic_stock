@@ -1,6 +1,7 @@
 import plotly.graph_objects as go
 import pandas as pd
 from utils import get_logger
+from plotly.subplots import make_subplots # <-- 수정된 부분: make_subplots 임포트 추가
 
 logger = get_logger(__name__)
 
@@ -25,10 +26,8 @@ def plot_financial_kpis(ratios: dict):
     """
     주요 재무 지표(ROE, 부채비율, 매출액)에 대한 개별 KPI 차트 3개를 생성합니다.
     """
-    # 기본 테마 설정 (스크린샷에 보이는 어두운 테마)
     theme = {'template': 'plotly_dark'}
     
-    # 1. ROE 게이지 차트 생성
     roe_val = ratios.get("ROE (%)", 0)
     roe_fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -51,7 +50,6 @@ def plot_financial_kpis(ratios: dict):
     ))
     roe_fig.update_layout(**theme, height=250)
 
-    # 2. 부채비율 게이지 차트 생성
     debt_val = ratios.get("부채비율 (%)", 0)
     debt_fig = go.Figure(go.Indicator(
         mode="gauge+number",
@@ -74,9 +72,8 @@ def plot_financial_kpis(ratios: dict):
     ))
     debt_fig.update_layout(**theme, height=250)
 
-    # 3. 매출액 숫자 차트 생성
     sales_val = ratios.get("매출액", 0)
-    sales_in_b_won = sales_val / 100000000 if sales_val else 0 # 억원 단위로 변환
+    sales_in_b_won = sales_val / 100000000 if sales_val else 0
     sales_fig = go.Figure(go.Indicator(
         mode="number",
         value=sales_in_b_won,
@@ -92,7 +89,7 @@ def plot_candlestick_with_indicators(price_df: pd.DataFrame, company_name: str) 
     if price_df.empty:
         return create_empty_chart(f"{company_name} 주가 차트")
         
-    fig = make_subplots(
+    fig = make_subplots( # <-- make_subplots 함수 사용
         rows=2, cols=1, 
         shared_xaxes=True, 
         vertical_spacing=0.03, 
@@ -123,14 +120,9 @@ def plot_candlestick_with_indicators(price_df: pd.DataFrame, company_name: str) 
         title_text=f"{company_name} 기술적 분석 차트",
         xaxis_rangeslider_visible=False,
         legend_title="지표",
-        template='plotly_dark' # 어두운 테마 적용
+        template='plotly_dark'
     )
     fig.update_yaxes(title_text="주가 (KRW)", row=1, col=1)
     fig.update_yaxes(title_text="RSI", row=2, col=1)
     
     return fig
-
-# plot_financial_summary 함수는 이제 plot_financial_kpis로 대체되었습니다.
-# 기존 함수는 삭제하거나 주석 처리합니다.
-# def plot_financial_summary(ratios: dict, company_name: str) -> go.Figure:
-#    ...
