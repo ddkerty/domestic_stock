@@ -49,15 +49,12 @@ else:
 
 st.sidebar.header("종목 선택")
 
-# --- START: 통합된 단일 검색 기능 적용 ---
 with st.sidebar:
     selected_stock_code = unified_stock_search()
 
-# 검색 컴포넌트에서 새로운 종목 코드가 반환되면 세션 상태 업데이트
 if selected_stock_code and selected_stock_code != st.session_state.get('current_stock_code'):
     st.session_state.current_stock_code = selected_stock_code
-    st.rerun() # 새로운 종목 선택 시 앱을 새로고침하여 즉시 반영
-# --- END: 통합된 단일 검색 기능 적용 ---
+    st.rerun()
 
 st.sidebar.markdown("---")
 
@@ -97,11 +94,15 @@ analyze_button = st.sidebar.button("📊 분석 실행", use_container_width=Tru
 # --- 메인 화면 ---
 final_stock_code_to_analyze = st.session_state.current_stock_code
 
-# 현재 선택된 종목 정보 표시
 try:
     all_stocks = st.session_state.krx_stocks_df
-    current_stock_name = all_stocks[all_stocks['Symbol'] == final_stock_code_to_analyze]['Name'].iloc[0]
-    st.title(f"📈 {current_stock_name} ({final_stock_code_to_analyze})")
+    if not all_stocks.empty:
+        current_stock_name = all_stocks[all_stocks['Symbol'] == final_stock_code_to_analyze]['Name'].iloc[0]
+        st.title(f"📈 {current_stock_name} ({final_stock_code_to_analyze})")
+    else:
+        st.title(f"📈 AI 기반 국내 주식 분석")
+        if final_stock_code_to_analyze:
+             st.warning(f"{final_stock_code_to_analyze} 종목 정보를 찾을 수 없습니다. 목록을 불러오는 중일 수 있습니다.")
 except (IndexError, KeyError, TypeError):
     st.title(f"📈 AI 기반 국내 주식 분석")
     if final_stock_code_to_analyze:
@@ -126,13 +127,19 @@ if analyze_button and final_stock_code_to_analyze:
             with st.spinner("DART 재무 데이터 수집 중..."):
                 now = datetime.now()
                 current_year = str(now.year - 1 if now.month >= 5 else now.year - 2)
-                financial_data_df = fetch_dart_financial_data(
+                
+                # --- START: 수정된 부분 ---
+                # fetch_dart_financial_data는 이제 (데이터프레임, 메시지) 튜플을 반환
+                # 튜플을 df와 msg 두 변수로 올바르게 풀어줍니다.
+                df, msg = fetch_dart_financial_data(
                     final_stock_code_to_analyze,
                     year=current_year,
                     report_code="11011"
                 )
-            if financial_data_df is not None and not financial_data_df.empty:
-                financial_ratios = calculate_financial_ratios(financial_data_df)
+            
+            # 튜플로 받은 변수 중 데이터프레임(df)에 대해서만 .empty를 확인합니다.
+            if not df.empty:
+                financial_ratios = calculate_financial_ratios(df)
                 if financial_ratios and "error" not in financial_ratios:
                     cols = st.columns(3)
                     cols[0].metric("ROE (%)", f"{financial_ratios.get('ROE (%)', 0):.2f}" if pd.notna(financial_ratios.get('ROE (%)')) else "N/A")
@@ -145,7 +152,10 @@ if analyze_button and final_stock_code_to_analyze:
                 else:
                     st.error("재무 지표를 계산하는데 실패했습니다.")
             else:
-                st.warning("DART에서 해당 기간의 재무 데이터를 가져올 수 없습니다.")
+                # 데이터가 없을 경우, 함께 반환된 상세 메시지(msg)를 표시합니다.
+                st.warning(msg)
+            # --- END: 수정된 부분 ---
+
         except Exception as e:
             st.error(f"기업 분석 중 오류 발생: {e}")
             logger.error(f"Error in financial analysis pipeline: {e}", exc_info=True)
@@ -173,4 +183,4 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.info("문의: Gemini AI Solutions")
-st.sidebar.markdown("Ver 0.9 (UX-Improved)")
+st.sidebar.markdown("Ver 1.0 (Stable)")
