@@ -195,5 +195,5 @@ else:
     st.info("👈 사이드바에서 분석할 종목을 선택한 후 '분석 실행' 버튼을 클릭하세요.")
 
 st.sidebar.markdown("---")
-st.sidebar.info("쓰레드: @hyunjin_is_good")
+st.sidebar.info("쓰레드: [@hyunjin_is_good](https://www.threads.com/@hyunjin_is_good?hl=ko)") # 수정된 라인
 st.sidebar.markdown("Ver 1.2 (Detailed Tech Signals)")
