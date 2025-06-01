@@ -7,3 +7,10 @@ python-dotenv>=1.0.0
 beautifulsoup4
 lxml
 
+# 기술적 분석 라이브러리 (선택사항)
+# TA-Lib 대신 사용할 수 있는 대안들
+# ta>=0.10.2
+# pandas-ta>=0.3.14b0
+
+# TA-Lib 사용 시 (배포 환경에서 문제가 될 수 있음)
+# TA-Lib-Precompiled>=0.4.0  # streamlit cloud에서 사용 가능한 대안
