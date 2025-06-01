@@ -17,7 +17,7 @@ try:
     FDR_AVAILABLE = True
 except ImportError:
     FDR_AVAILABLE = False
-    logger.warning("FinanceDataReader 라이브러리를 찾을 수 없습니다. pip install finance-datareader로 설치해주세요. 주가 데이터 및 KRX 목록은 목업으로 대체됩니다.")
+    logger.critical("FinanceDataReader 라이브러리를 찾을 수 없습니다. pip install finance-datareader로 설치해주세요.")
 
 
 @timed_cache(seconds=config.CACHE_TIMEOUT_SECONDS * 24)
@@ -255,18 +255,28 @@ def fetch_company_info(stock_code: str) -> dict:
 @timed_cache(seconds=3600 * 24) # 하루 캐시
 def get_krx_stock_list() -> pd.DataFrame:
     """KRX 전체 종목 리스트 (종목명, 종목코드)를 반환합니다."""
-    logger.info("Fetching KRX stock list...")
     if not FDR_AVAILABLE:
-        logger.warning("FinanceDataReader가 설치되지 않아 KRX 종목 리스트를 가져올 수 없습니다.")
-        return pd.DataFrame(columns=['Symbol', 'Name']) 
+        logger.error("FinanceDataReader가 설치되지 않아 KRX 종목 리스트를 가져올 수 없습니다.")
+        return pd.DataFrame(columns=['Symbol', 'Name'])
+    
+    logger.info("FinanceDataReader를 사용하여 KRX 전체 종목 목록 가져오기 시작...")
     try:
-        krx = fdr.StockListing('KRX') 
+        krx = fdr.StockListing('KRX')
         if krx.empty:
-            logger.warning("FinanceDataReader에서 KRX 목록을 가져왔으나 비어있습니다.")
+            logger.warning("FinanceDataReader에서 KRX 목록을 가져왔으나 데이터가 비어있습니다. 네트워크 문제나 API 변경일 수 있습니다.")
             return pd.DataFrame(columns=['Symbol', 'Name'])
 
-        logger.info(f"Fetched {len(krx)} stocks from KRX.")
-        return krx[['Symbol', 'Name']].dropna(subset=['Symbol', 'Name'])
+        # 필수 컬럼 확인
+        if 'Symbol' not in krx.columns or 'Name' not in krx.columns:
+            logger.error(f"KRX 목록에 필수 컬럼('Symbol', 'Name')이 없습니다. 현재 컬럼: {krx.columns}")
+            return pd.DataFrame(columns=['Symbol', 'Name'])
+        
+        # 결측값 처리
+        krx_cleaned = krx[['Symbol', 'Name']].dropna(subset=['Symbol', 'Name'])
+        
+        logger.info(f"KRX에서 {len(krx_cleaned)}개 종목을 성공적으로 가져왔습니다.")
+        return krx_cleaned
+        
     except Exception as e:
-        logger.error(f"Error fetching KRX stock list: {e}")
+        logger.error(f"KRX 종목 목록을 가져오는 중 심각한 오류가 발생했습니다: {e}", exc_info=True)
         return pd.DataFrame(columns=['Symbol', 'Name'])
