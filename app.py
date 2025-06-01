@@ -93,7 +93,7 @@ for idx, item in enumerate(search_history):
     corp_name = item.get("corp_name", f"기업({stock_code})")
     if st.sidebar.button(corp_name, key=f"history_{stock_code}_{idx}", use_container_width=True, type="secondary"):
         st.session_state.current_stock_code = stock_code
-        # 동적/고급 검색의 선택 상태를 초기화할 필요가 있을 수 있음
+        # 동적/고급 검색의 선택 상태를 초기화
         if 'selected_stock' in st.session_state:
             del st.session_state['selected_stock']
         st.rerun()
@@ -190,4 +190,4 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.info("문의: Gemini AI Solutions")
-st.sidebar.markdown("Ver 0.7 (Search Enhanced)")
+st.sidebar.markdown("Ver 0.8 (Final Integration)")
