@@ -38,7 +38,7 @@ if 'current_stock_code' not in st.session_state:
     logger.info(f"Initialized current_stock_code: {st.session_state.current_stock_code}")
 
 # --- 사이드바 ---
-st.sidebar.title("🧭 메뉴")
+st.sidebar.title("🧭 설정")
 user_id = firebase_auth.get_current_user_id()
 if firebase_auth.is_user_logged_in():
     st.sidebar.success(f"로그인됨: {user_id}")
