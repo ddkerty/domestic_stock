@@ -42,17 +42,27 @@ def _search_stocks(searchterm: str) -> List[Tuple[str, str]]:
 
 def unified_stock_search() -> Optional[str]:
     """
-    UX가 개선된 단일 주식 검색 함수.
-    데이터 로드 확인 후, 실패 시 에러 메시지를 표시합니다.
+    안정성이 강화된 단일 주식 검색 함수.
+    데이터 로드 실패 시, 종목 코드를 직접 입력하는 대체(Fallback) 모드를 제공합니다.
+    streamlit-searchbox의 다양한 반환값 유형(튜플, 문자열)을 모두 처리합니다.
     """
-    # 검색창을 띄우기 전에 데이터 로드를 먼저 시도하고 확인합니다.
     stock_df = _load_search_data()
 
     if stock_df.empty:
-        st.error("주식 목록을 불러올 수 없습니다.")
-        st.caption("네트워크 연결을 확인하거나, 잠시 후 다시 시도해 주세요. 문제가 지속되면 FinanceDataReader 라이브러리의 상태를 확인해야 할 수 있습니다.")
-        return None  # 데이터가 없으면 함수를 여기서 중단
+        # 데이터 로딩 실패 시 대체 입력창 제공
+        st.warning("전체 종목 목록 로딩에 실패하여 종목명 검색을 사용할 수 없습니다.")
+        fallback_code = st.text_input(
+            "종목 코드를 직접 입력해주세요. (예: 005930)",
+            key="fallback_search_input",
+            help="💡 분석하고 싶은 6자리 종목코드를 입력 후 Enter를 누르세요."
+        )
+        if fallback_code and len(fallback_code) == 6 and fallback_code.isdigit():
+            return fallback_code
+        elif fallback_code:
+            st.info("정확한 6자리 숫자로 된 종목코드를 입력해주세요.")
+        return None
 
+    # 데이터 로딩 성공 시 자동완성 검색창 표시
     selected_value = st_searchbox(
         search_function=_search_stocks,
         placeholder="회사명 또는 종목코드 입력 (예: 삼성)",
@@ -67,8 +77,31 @@ def unified_stock_search() -> Optional[str]:
         ]
     )
     
-    if selected_value:
-        st.success(f"✅ 선택: **{selected_value[0]}**")
-        return selected_value[1] 
-    
+    # --- START: 반환값 처리 로직 강화 ---
+    if not selected_value:
+        return None
+
+    # Case 1: 사용자가 드롭다운에서 선택한 경우 (튜플 반환)
+    if isinstance(selected_value, tuple):
+        display_name, stock_code = selected_value
+        # st.success(f"✅ 선택: **{display_name}**") # 성공 메시지는 한 번만 뜨도록 조건부로 처리 가능
+        return stock_code
+
+    # Case 2: 화면이 새로고침된 후 (문자열 반환)
+    if isinstance(selected_value, str):
+        # "삼성전자 (005930)" 형태의 문자열에서 종목코드만 추출
+        if '(' in selected_value and ')' in selected_value:
+            try:
+                stock_code = selected_value.split('(')[-1].split(')')[0]
+                if len(stock_code) == 6 and stock_code.isdigit():
+                    return stock_code
+            except IndexError:
+                # 잘못된 형식의 문자열은 무시
+                pass
+        
+        # 순수한 6자리 종목코드가 입력된 경우
+        if len(selected_value) == 6 and selected_value.isdigit():
+            return selected_value
+
     return None
+    # --- END: 반환값 처리 로직 강화 ---
